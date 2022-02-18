@@ -3,78 +3,50 @@
 
 
 // I2Cアドレス
-#define DRV_ADR_R 0x64 // RightDRV8830のI2Cアドレス
-#define DRV_ADR_L 0x60 // LeftDRV8830のI2Cアドレス
-#define CTR_ADR 0x00 // CONTROLレジスタのサブアドレス
-#define FLT_ADR 0x01 // FAULTレジスタのアドレス
+#define DRV_ADR_R   0x64  // RightDRV8830のI2Cアドレス
+#define DRV_ADR_L   0x60  // LeftDRV8830のI2Cアドレス
 
 
 
 // ブリッジ制御
-#define M_STANBY B00 // スタンバイ
-#define M_REVERSE B01 // 逆転
-#define M_NORMAL B10 // 正転
-#define M_BRAKE B11 // ブレーキ
+#define STOP      0x00  //停止
+#define FORWARD   0x01  //正転
+#define BACKWARD  0x02  //逆転
+#define BACKWARD  0x03  //ブレーキ
 
 
 
 // 電圧定義
-#define MAX_VSET 0x23 // 5.06V
-#define MIN_VSET 0x09 // 0.72V
-#define R_VSET 0x0D // 2.97V
-//#define L_VSET 0x25 // 2.97V
-#define CSPEED 0x23 //2.81V
+#define MAX_VSET 0x3F   // 5.06V
+#define MIN_VSET 0x09   // 0.72V
+#define R_VSET 0x0D  // 2.97V
+#define L_VSET 0x25  // 2.97V
 
 
 #include <SPI.h>
 #define slaveSelectPin0 4
 #define slaveSelectPin1 5
 
-int num = 0;
-
 int analogData[16];
-int r_analogData[6];
-int l_analogData[6];
-int cnt = 1;
-// 制御コマンド送信
-// 制御コマンド送信
-int write_vset_r(byte vs, byte ctr) {
-  Wire.beginTransmission(DRV_ADR_R);
-  Wire.write(CTR_ADR);
-  Wire.write( vs << 2 | ctr );
-  Wire.endTransmission();
-  return 0;
-}
+int r_analogData;
+int l_analogData;
+int cnt = 0;
 
 
-
-// 制御コマンド送信
-int write_vset_l(byte vs, byte ctr) {
-  Wire.beginTransmission(DRV_ADR_L);
-  Wire.write(CTR_ADR);
-  Wire.write( vs << 2 | ctr );
-  Wire.endTransmission();
-  return 0;
-}
-
-// 制御コマンド送信
-int stop_r() {
-  Wire.beginTransmission(DRV_ADR_R);
-  Wire.write(CTR_ADR);
-  Wire.write( 0x00 << 2 | 0x00 );
-  Wire.endTransmission();
-  return 1;
-}
-
-
-
-// 制御コマンド送信
-int stop_l() {
-  Wire.beginTransmission(DRV_ADR_L);
-  Wire.write(CTR_ADR);
-  Wire.write( 0x00 << 2 | 0x00 );
-  Wire.endTransmission();
-  return 1;
+//**********************************************************************
+//モータドライバ I2C制御 motor driver I2C
+//  Given:  int motor: モータドライバICのアドレス(motorL:0x60、motorR:0x64)
+//          byte vset: モーター駆動電圧(0x00-0x3F)
+//          byte dir: モーターの回転方向(STOP:0x00:停止、FORWARD:0x01:正転、BACKWARD:0x02:逆転)
+//  return: なし
+//http://makers-with-myson.blog.so-net.ne.jp/2014-05-15
+//**********************************************************************
+void writeMotorResister(int motor, byte vset, byte dir) {
+  int vdata = vset << 2 | dir;
+  Wire.beginTransmission(motor);
+  Wire.write(0x00);
+  Wire.write(vdata);
+  Wire.endTransmission(true);
 }
 
 
@@ -88,51 +60,82 @@ void setup() {
   SPI.setClockDivider(SPI_CLOCK_DIV2);      //クロック分周設定
   SPI.setDataMode(SPI_MODE0);               //SPIモード0
   SPI.begin();                              //SPI通信開始
-  stop_l();
-  stop_r();
 }
 
 
 
 void loop() {
-  int ret = get_Rsns();
+  int lr = get_Rsns(0, "l");
+  int sta = get_Rsns(0, "r");
+  int left1 = get_Rsns(1, "l");
+  int right1 = get_Rsns(1, "r");
+  int left2 = get_Rsns(2, "l");
+  int right2 = get_Rsns(2, "r");
+  //  int left3 = get_Rsns(3, "l");
+  //  int right3 = get_Rsns(3, "r");
+  //int left4 = get_Rsns(4, "l");
+  //int right4 = get_Rsns(4, "r");
+  int left5 = get_Rsns(5, "l");
+  int right5 = get_Rsns(5, "r");
+
   static int forward = 0;
+  static int turn = 0;
 
   if (forward == 1) {
-    Serial.println(forward);
-    if (ret == 1) {
-      Serial.print("後転");
-      stop_l();
-      stop_r();
-      delay(150);
-      write_vset_l(0x10, 0x1);
-      write_vset_r(0x10, 0x1);
-      delay(50);
-      forward = 0;
-      if(cnt == 1){
-        delay(2000);
-        cnt++;
+    if (turn == 1) {
+      if (left1 == 1 || left2 == 1) {
+        //if(left5 == 1){
+        Serial.print("left start");
+        writeMotorResister(DRV_ADR_L, MIN_VSET + 4, FORWARD);
+        writeMotorResister(DRV_ADR_R, MIN_VSET + 2, FORWARD);
+        delay(50);
+      }
+      if (right1 == 1 || right2 == 1) {
+        //if(right5 == 1){
+        Serial.print("right start");
+        writeMotorResister(DRV_ADR_L, MIN_VSET + 2, FORWARD);
+        writeMotorResister(DRV_ADR_R, MIN_VSET + 4, FORWARD);
+        delay(50);
+      }
+      if (lr == 1) {
+        writeMotorResister(DRV_ADR_L, MIN_VSET + 2, FORWARD);
+        writeMotorResister(DRV_ADR_R, MIN_VSET + 2, FORWARD);
+        Serial.println("ln end");
+        delay(1000);
+        turn = 0;
+      }
+    } else {
+      if (lr == 1) {
+        Serial.println("ln start");
+        delay(1000);
+        turn = 1;
       }
     }
+    if (sta == 1) {
+      Serial.print("stop");
+      writeMotorResister(DRV_ADR_L, MIN_VSET, STOP);
+      writeMotorResister(DRV_ADR_R, MIN_VSET, STOP);
+      delay(3000);
+      forward = 0;
+    }
   } else {
-    Serial.println(forward);
-    if (ret == 1) {
-      Serial.print("正転");
-      stop_l();
-      stop_r();
-      delay(150);
-      write_vset_l(0x10, 0x2);
-      write_vset_r(0x10, 0x2);
-      delay(50);
+    //スタート
+    if (sta == 1) {
+
+      Serial.print("start");
+      writeMotorResister(DRV_ADR_L, MIN_VSET + 2, FORWARD);
+      writeMotorResister(DRV_ADR_R, MIN_VSET + 2, FORWARD);
+      delay(1000);
+      //delay(50);
       forward = 1;
+
     }
   }
   delay(10);
 }
-void get_adc(byte ch){
+
+void get_adc(byte ch) {
   byte data[4] = {0, 0, 0, 0};                               //SPI通信用変数
-
-
   //------[ ADC0のデータを取得する ]------
   digitalWrite(slaveSelectPin0, LOW);       //CS LOW
   SPI.transfer(0x01);                       //①スタートビット送信
@@ -148,24 +151,34 @@ void get_adc(byte ch){
   data[2] = SPI.transfer((ch << 4) | 0x80);  //②Single-ended チャンネル選択,ADC0のbit9,8取得
   data[3] = SPI.transfer(0);                //③ADC0のbit7～0取得
   digitalWrite(slaveSelectPin1, HIGH);                  //CS HIGH
-
-
-
   analogData[0] = ((data[0] & 0x03) << 8) | data[1];  //ADC0
   analogData[1] = ((data[2] & 0x03) << 8) | data[3];  //ADC1
   //return analogData[0];
 }
 
-int get_Rsns() {
-  for (int i = 0; i < 4; i++) {
-    get_adc(i);
-    r_analogData[3 - i] = analogData[0];
-    l_analogData[i] = analogData[1];
-  }
+int get_Rsns(int ch, String leri) {
+  //for (int i = 0; i < 6; i++) {
+  get_adc(ch);
+  r_analogData = analogData[0];
+  l_analogData = analogData[1];
+  //}
 
-  if (r_analogData[0] <= 100) {
-    return 1;
-  } else {
-    return 0;
+  if (leri == "r") {
+    if (r_analogData <= 100) {
+      Serial.println("right" + String(ch) + String(1));
+      return 1;
+    } else {
+      Serial.println("right" + String(ch) + String(0));
+      return 0;
+    }
+  }
+  if (leri == "l") {
+    if (l_analogData <= 100) {
+      Serial.println("left" + String(ch) + String(1));
+      return 1;
+    } else {
+      Serial.println("left" + String(ch) + String(0));
+      return 0;
+    }
   }
 }
